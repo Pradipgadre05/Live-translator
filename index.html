@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live translator · English ⇄ Spanish</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f3f4f6;
+    --surface: #ffffff;
+    --ink: #14171a;
+    --muted: #68717d;
+    --line: #dde0e5;
+    --accent: #2447e0;
+    --live: #d6262e;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1114;
+      --surface: #171a1f;
+      --ink: #eceef1;
+      --muted: #8d96a3;
+      --line: #2a2f37;
+      --accent: #7f98ff;
+      --live: #ff6b72;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.45;
+    display: flex;
+    justify-content: center;
+  }
+  main {
+    width: 100%;
+    max-width: 860px;
+    padding: 20px 20px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-height: 100%;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .direction {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 4px;
+  }
+  .direction span {
+    padding: 6px 14px;
+    font-weight: 500;
+    font-size: 15px;
+    min-width: 88px;
+    text-align: center;
+  }
+  button {
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+  }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .swap {
+    border: 0;
+    background: var(--bg);
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    font-size: 16px;
+    display: grid; place-items: center;
+  }
+  .swap:hover { background: var(--line); }
+  .spacer { flex: 1; }
+  .ghost {
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 7px 12px;
+    font-size: 14px;
+    color: var(--muted);
+  }
+  .ghost:hover { color: var(--ink); border-color: var(--muted); }
+
+  .stage {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 22px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    min-height: 260px;
+  }
+  .heard {
+    color: var(--muted);
+    font-size: 18px;
+    min-height: 54px;
+  }
+  .heard .interim { opacity: .7; }
+  .translated {
+    font-size: clamp(26px, 4.4vw, 38px);
+    line-height: 1.22;
+    font-weight: 500;
+    color: var(--ink);
+    min-height: 92px;
+    letter-spacing: -0.01em;
+  }
+  .translated .interim { color: var(--accent); }
+  .placeholder { color: var(--muted); font-weight: 400; }
+
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .mic {
+    border: 0;
+    background: var(--ink);
+    color: var(--bg);
+    border-radius: 999px;
+    padding: 14px 26px;
+    font-weight: 600;
+    font-size: 16px;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .mic .dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--bg);
+  }
+  .mic.on { background: var(--live); color: #fff; }
+  .mic.on .dot { background: #fff; animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .25; } }
+  @media (prefers-reduced-motion: reduce) { .mic.on .dot { animation: none; } }
+
+  .status { color: var(--muted); font-size: 14px; }
+  .status.error { color: var(--live); }
+
+  .history {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .pair {
+    border-left: 2px solid var(--line);
+    padding-left: 14px;
+  }
+  .pair .src { color: var(--muted); font-size: 15px; }
+  .pair .dst { font-size: 19px; font-weight: 500; }
+  .empty { color: var(--muted); font-size: 15px; }
+  footer { color: var(--muted); font-size: 13px; margin-top: auto; }
+  .filewarn {
+    border: 1px solid var(--live);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 14px;
+    color: var(--ink);
+  }
+  .filewarn code { background: var(--bg); padding: 1px 6px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="direction" aria-label="Translation direction">
+      <span id="fromLabel">English</span>
+      <button class="swap" id="swap" title="Swap languages (Space bar also starts and stops)" aria-label="Swap languages">⇄</button>
+      <span id="toLabel">Spanish</span>
+    </div>
+    <div class="spacer"></div>
+    <button class="ghost" id="copy">Copy translations</button>
+    <button class="ghost" id="clear">Clear</button>
+  </header>
+
+  <section class="stage" aria-live="polite">
+    <div class="heard" id="heard"><span class="placeholder">What you say appears here.</span></div>
+    <div class="translated" id="translated"><span class="placeholder">The translation appears here.</span></div>
+    <div class="controls">
+      <button class="mic" id="mic"><span class="dot"></span><span id="micText">Start listening</span></button>
+      <span class="status" id="status">Ready</span>
+    </div>
+  </section>
+
+  <section class="history" id="history">
+    <div class="empty" id="empty">Finished sentences collect here.</div>
+  </section>
+
+  <footer id="engineNote">Engine: checking…</footer>
+</main>
+
+<script>
+(() => {
+  'use strict';
+
+  // ---------- State ----------
+  const LANGS = {
+    en: { name: 'English', speech: 'en-US' },
+    es: { name: 'Spanish', speech: 'es-ES' }
+  };
+  let src = 'en', tgt = 'es';
+  let running = false;
+  let rec = null;
+  let seq = 0;                 // increments on every request; stale replies are dropped
+  let debounceTimer = null;
+  let lastInterimSent = '';
+  const history = [];          // {src, dst}
+
+  const $ = id => document.getElementById(id);
+  const heardEl = $('heard'), transEl = $('translated'), statusEl = $('status');
+  const micBtn = $('mic'), micText = $('micText');
+
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  function setStatus(msg, isError = false) {
+    statusEl.textContent = msg;
+    statusEl.classList.toggle('error', isError);
+  }
+
+  // ---------- Translation engines ----------
+  // 1) Chrome's on-device Translator API (fastest, offline after a one-time model download)
+  // 2) MyMemory web API as a fallback (needs internet)
+  const translators = {};
+  let engine = 'none';
+
+  async function getLocalTranslator(from, to) {
+    if (!('Translator' in self)) return null;
+    const key = from + '>' + to;
+    if (translators[key] !== undefined) return translators[key];
+    try {
+      const avail = await Translator.availability({ sourceLanguage: from, targetLanguage: to });
+      if (avail === 'unavailable') return (translators[key] = null);
+      translators[key] = await Translator.create({
+        sourceLanguage: from,
+        targetLanguage: to,
+        monitor(m) {
+          m.addEventListener('downloadprogress', e => {
+            setStatus('Downloading language model… ' + Math.round(e.loaded * 100) + '%');
+          });
+        }
+      });
+      return translators[key];
+    } catch (err) {
+      console.warn('Local translator unavailable:', err);
+      return (translators[key] = null);
+    }
+  }
+
+  async function translateRemote(text, from, to) {
+    const url = 'https://api.mymemory.translated.net/get?q=' +
+      encodeURIComponent(text) + '&langpair=' + from + '|' + to;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Translation service error ' + res.status);
+    const data = await res.json();
+    return (data.responseData && data.responseData.translatedText) || '';
+  }
+
+  async function translate(text, from, to) {
+    const local = await getLocalTranslator(from, to);
+    if (local) {
+      engine = 'on-device';
+      return local.translate(text);
+    }
+    engine = 'online';
+    return translateRemote(text, from, to);
+  }
+
+  function updateEngineNote() {
+    const note = engine === 'on-device'
+      ? 'Engine: Chrome on-device translation. Works offline once the language models are downloaded.'
+      : engine === 'online'
+        ? 'Engine: online fallback (MyMemory). For the fastest results use a recent desktop Chrome or Edge.'
+        : 'Engine: starts when you press Start listening.';
+    $('engineNote').textContent = note;
+  }
+
+  // ---------- Rendering ----------
+  function renderLive(finalText, interimText) {
+    if (!finalText && !interimText) {
+      heardEl.innerHTML = '<span class="placeholder">What you say appears here.</span>';
+      return;
+    }
+    heardEl.textContent = '';
+    heardEl.append(document.createTextNode(finalText + ' '));
+    const i = document.createElement('span');
+    i.className = 'interim';
+    i.textContent = interimText;
+    heardEl.append(i);
+  }
+
+  function renderTranslation(text, isInterim) {
+    if (!text) {
+      transEl.innerHTML = '<span class="placeholder">The translation appears here.</span>';
+      return;
+    }
+    transEl.textContent = '';
+    const s = document.createElement('span');
+    if (isInterim) s.className = 'interim';
+    s.textContent = text;
+    transEl.append(s);
+  }
+
+  function addHistory(srcText, dstText) {
+    history.unshift({ src: srcText, dst: dstText });
+    $('empty').style.display = 'none';
+    const div = document.createElement('div');
+    div.className = 'pair';
+    const d = document.createElement('div'); d.className = 'dst'; d.textContent = dstText;
+    const s = document.createElement('div'); s.className = 'src'; s.textContent = srcText;
+    div.append(d, s);
+    $('history').prepend(div);
+  }
+
+  // ---------- Translation scheduling ----------
+  async function runTranslation(text, isInterim) {
+    const mine = ++seq;
+    try {
+      const out = await translate(text, src, tgt);
+      if (mine !== seq && isInterim) return;     // a newer request superseded this interim
+      renderTranslation(out, isInterim);
+      if (!isInterim) addHistory(text, out);
+      updateEngineNote();
+      if (running) setStatus('Listening…');
+    } catch (err) {
+      console.error(err);
+      setStatus('Translation failed: ' + err.message, true);
+    }
+  }
+
+  function scheduleInterim(text) {
+    if (text === lastInterimSent) return;
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      lastInterimSent = text;
+      runTranslation(text, true);
+    }, 180);
+  }
+
+  // ---------- Speech recognition ----------
+  function buildRecognizer() {
+    const r = new SR();
+    r.lang = LANGS[src].speech;
+    r.continuous = true;
+    r.interimResults = true;
+    r.maxAlternatives = 1;
+
+    let committed = '';   // text already finalized in the current utterance chunk
+
+    r.onresult = e => {
+      let interim = '';
+      let finals = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) finals += t; else interim += t;
+      }
+      if (finals.trim()) {
+        const sentence = finals.trim();
+        committed = '';
+        renderLive(sentence, '');
+        lastInterimSent = '';
+        clearTimeout(debounceTimer);
+        runTranslation(sentence, false);
+        return;
+      }
+      const shown = interim.trim();
+      renderLive(committed, shown);
+      if (shown) scheduleInterim(shown);
+    };
+
+    r.onerror = e => {
+      if (e.error === 'no-speech' || e.error === 'aborted') return;
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        setStatus('Microphone blocked. Allow mic access in the address bar and try again.', true);
+        stop();
+      } else if (e.error === 'network') {
+        setStatus('Speech service needs an internet connection in this browser.', true);
+      } else {
+        setStatus('Speech error: ' + e.error, true);
+      }
+    };
+
+    // Chrome ends sessions after silence; restart so listening feels continuous.
+    r.onend = () => {
+      if (!running) return;
+      if (location.protocol === 'file:') {
+        // On file:// Chrome re-asks for the mic on every start, so don't auto-restart.
+        stop();
+        setStatus('Paused after silence. Press Start listening again, or open via http://localhost to avoid repeated prompts.', true);
+        return;
+      }
+      setTimeout(() => { if (running) { try { r.start(); } catch (_) {} } }, 250);
+    };
+    return r;
+  }
+
+  async function start() {
+    if (!SR) {
+      setStatus('This browser has no speech recognition. Use desktop Chrome or Edge.', true);
+      return;
+    }
+    running = true;
+    micBtn.classList.add('on');
+    micText.textContent = 'Stop listening';
+    setStatus('Preparing translation…');
+    await getLocalTranslator(src, tgt);          // warm up inside the click gesture
+    updateEngineNote();
+    if (!running) return;
+    rec = buildRecognizer();
+    try { rec.start(); setStatus('Listening…'); } catch (err) { setStatus(String(err), true); }
+  }
+
+  function stop() {
+    running = false;
+    micBtn.classList.remove('on');
+    micText.textContent = 'Start listening';
+    if (rec) { rec.onend = null; try { rec.stop(); } catch (_) {} }
+    clearTimeout(debounceTimer);
+    setStatus('Stopped');
+  }
+
+  function swap() {
+    const wasRunning = running;
+    if (wasRunning) stop();
+    [src, tgt] = [tgt, src];
+    $('fromLabel').textContent = LANGS[src].name;
+    $('toLabel').textContent = LANGS[tgt].name;
+    renderLive('', '');
+    renderTranslation('', false);
+    if (wasRunning) start();
+  }
+
+  // ---------- Wiring ----------
+  micBtn.addEventListener('click', () => running ? stop() : start());
+  $('swap').addEventListener('click', swap);
+  $('clear').addEventListener('click', () => {
+    history.length = 0;
+    document.querySelectorAll('.pair').forEach(n => n.remove());
+    $('empty').style.display = '';
+    renderLive('', '');
+    renderTranslation('', false);
+  });
+  $('copy').addEventListener('click', async () => {
+    const text = history.slice().reverse().map(h => h.src + '\n' + h.dst).join('\n\n');
+    try { await navigator.clipboard.writeText(text); setStatus('Copied'); }
+    catch (_) { setStatus('Copy failed. Select the text manually.', true); }
+  });
+  document.addEventListener('keydown', e => {
+    if (e.code === 'Space' && e.target === document.body) {
+      e.preventDefault();
+      running ? stop() : start();
+    }
+  });
+
+  if (location.protocol === 'file:') {
+    const warn = document.createElement('div');
+    warn.className = 'filewarn';
+    warn.innerHTML = 'Opened as a local file, so Chrome will keep asking for the microphone. ' +
+      'Run <code>python -m http.server 8000</code> in this folder and open <code>http://localhost:8000</code> instead.';
+    document.querySelector('header').after(warn);
+  }
+
+  if (!SR) setStatus('Speech recognition needs desktop Chrome or Edge.', true);
+  updateEngineNote();
+})();
+</script>
+</body>
+</html>
