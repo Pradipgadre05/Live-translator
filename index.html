@@ -175,6 +175,17 @@
     color: var(--ink);
   }
   .filewarn code { background: var(--bg); padding: 1px 6px; border-radius: 4px; }
+  .accent {
+    font: inherit;
+    font-size: 14px;
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 7px 10px;
+    cursor: pointer;
+  }
+  .accent:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </style>
 </head>
 <body>
@@ -185,6 +196,7 @@
       <button class="swap" id="swap" title="Swap languages (Space bar also starts and stops)" aria-label="Swap languages">⇄</button>
       <span id="toLabel">Spanish</span>
     </div>
+    <select id="accent" class="accent" aria-label="Accent of the language you speak" title="Accent of the language you speak"></select>
     <div class="spacer"></div>
     <button class="ghost" id="copy">Copy translations</button>
     <button class="ghost" id="clear">Clear</button>
@@ -329,34 +341,68 @@
   }
 
   // ---------- Translation scheduling ----------
-  async function runTranslation(text, isInterim) {
-    const mine = ++seq;
+  let inflight = false;
+  let queuedText = null;
+  const wordCount = s => (s.trim() ? s.trim().split(/\s+/).length : 0);
+
+  // Final sentences: always translated, saved to history, and they cancel stale interim replies.
+  async function runTranslation(text) {
+    seq++;
+    queuedText = null;
     try {
+      const t0 = performance.now();
       const out = await translate(text, src, tgt);
-      if (mine !== seq && isInterim) return;     // a newer request superseded this interim
-      renderTranslation(out, isInterim);
-      if (!isInterim) addHistory(text, out);
+      renderTranslation(out, false);
+      addHistory(text, out);
       updateEngineNote();
-      if (running) setStatus('Listening…');
+      if (running) setStatus('Listening… ' + Math.round(performance.now() - t0) + ' ms');
     } catch (err) {
       console.error(err);
       setStatus('Translation failed: ' + err.message, true);
     }
   }
 
+  // Live partial text: one request at a time, always jumping to the newest text (no pile-up).
+  async function pumpInterim(text) {
+    if (inflight) { queuedText = text; return; }
+    inflight = true;
+    const mine = seq;
+    try {
+      const t0 = performance.now();
+      const out = await translate(text, src, tgt);
+      if (mine === seq) {
+        renderTranslation(out, true);
+        updateEngineNote();
+        if (running) setStatus('Listening… ' + Math.round(performance.now() - t0) + ' ms');
+      }
+    } catch (err) {
+      console.error(err);
+      setStatus('Translation failed: ' + err.message, true);
+    } finally {
+      inflight = false;
+      if (queuedText !== null) {
+        const next = queuedText;
+        queuedText = null;
+        pumpInterim(next);
+      }
+    }
+  }
+
   function scheduleInterim(text) {
     if (text === lastInterimSent) return;
+    // The online fallback is slow and rate-limited, so only send when a new word appears.
+    if (engine === 'online' && wordCount(text) === wordCount(lastInterimSent)) return;
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
       lastInterimSent = text;
-      runTranslation(text, true);
-    }, 180);
+      pumpInterim(text);
+    }, 50);
   }
 
   // ---------- Speech recognition ----------
   function buildRecognizer() {
     const r = new SR();
-    r.lang = LANGS[src].speech;
+    r.lang = accent[src];
     r.continuous = true;
     r.interimResults = true;
     r.maxAlternatives = 1;
@@ -441,10 +487,45 @@
     [src, tgt] = [tgt, src];
     $('fromLabel').textContent = LANGS[src].name;
     $('toLabel').textContent = LANGS[tgt].name;
+    populateAccent();
     renderLive('', '');
     renderTranslation('', false);
     if (wasRunning) start();
   }
+
+  // ---------- Accent picker ----------
+  const ACCENTS = {
+    en: [['en-US', 'US'], ['en-IN', 'India'], ['en-GB', 'UK'], ['en-AU', 'Australia']],
+    es: [['es-ES', 'Spain'], ['es-MX', 'Mexico'], ['es-US', 'United States'], ['es-AR', 'Argentina']]
+  };
+  const accent = { en: 'en-US', es: 'es-ES' };
+  try {
+    const saved = JSON.parse(localStorage.getItem('accent') || '{}');
+    if (saved.en) accent.en = saved.en;
+    if (saved.es) accent.es = saved.es;
+  } catch (_) {}
+
+  const accentSel = $('accent');
+  function populateAccent() {
+    accentSel.textContent = '';
+    ACCENTS[src].forEach(([code, label]) => {
+      const o = document.createElement('option');
+      o.value = code;
+      o.textContent = LANGS[src].name + ' (' + label + ')';
+      accentSel.append(o);
+    });
+    accentSel.value = accent[src];
+    if (!accentSel.value) {
+      accentSel.value = ACCENTS[src][0][0];
+      accent[src] = accentSel.value;
+    }
+  }
+  accentSel.addEventListener('change', () => {
+    accent[src] = accentSel.value;
+    try { localStorage.setItem('accent', JSON.stringify(accent)); } catch (_) {}
+    if (running) { stop(); start(); }
+  });
+  populateAccent();
 
   // ---------- Wiring ----------
   micBtn.addEventListener('click', () => running ? stop() : start());
